@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EduIntel Staff Chat Dashboard (Axios - Fixed User ID)</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        /* Basic Reset and Layout */
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #1a202c; /* Dark background */
+            color: #ffffff;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Chat Layout */
+        .chat-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        header {
+            padding: 1rem;
+            background-color: #2d3748;
+            border-bottom: 1px solid #4a5568;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        /* Messages Area */
+        .messages-area {
+            flex-grow: 1;
+            overflow-y: auto;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        /* Message Bubbles */
+        .message-bubble {
+            max-width: 70%;
+            padding: 0.75rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+        }
+
+        .user-message {
+            align-self: flex-end;
+            background-color: #3182ce; /* Blue */
+            color: white;
+            border-bottom-right-radius: 2px;
+        }
+
+        .bot-message {
+            align-self: flex-start;
+            background-color: #2d3748; /* Dark Gray */
+            color: #ccc;
+            border-top-left-radius: 2px;
+        }
+        
+        .system-error-message {
+            align-self: center;
+            background-color: #9b2c2c; /* Red */
+            color: #f7a8a8;
+            border: 1px solid #c53030;
+            text-align: center;
+        }
+
+        .bot-name {
+            font-weight: bold;
+            color: #4dc0b5; /* Cyan */
+            font-size: 0.75rem;
+            margin-bottom: 0.25rem;
+        }
+
+        /* Input Area */
+        .input-area {
+            padding: 1rem;
+            background-color: #1a202c;
+            border-top: 1px solid #4a5568;
+            position: sticky;
+            bottom: 0;
+        }
+
+        .input-form {
+            display: flex;
+            background-color: #2d3748;
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+
+        #chat-input {
+            flex-grow: 1;
+            background: transparent;
+            border: none;
+            color: white;
+            padding: 0.5rem 1rem;
+            font-size: 16px;
+            outline: none;
+        }
+
+        #send-button {
+            background-color: #4dc0b5; /* Cyan */
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #send-button:hover:not(:disabled) {
+            background-color: #38b2ac;
+        }
+
+        #send-button:disabled {
+            background-color: #4a5568;
+            cursor: not-allowed;
+        }
+        
+        /* Loading Spinner */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4dc0b5;
+            border-radius: 50%;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            margin-right: 0.5rem;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="chat-container">
+        
+        <header>
+            <h2 style="margin: 0;">EduIntel – Staff Portal</h2>
+            <p style="margin: 0.25rem 0 0; font-size: 0.9rem; color: #a0aec0;">
+                Current Session: <span id="session-status">Loading...</span>
+            </p>
+        </header>
+
+        <div class="messages-area" id="chat-messages">
+            </div>
+
+        <div class="input-area">
+            <form class="input-form" id="chat-form">
+                <input
+                    type="text"
+                    id="chat-input"
+                    placeholder="Type your message or ask a question..."
+                    autocomplete="off"
+                />
+                <button type="submit" id="send-button" disabled>
+                    Send
+                </button>
+            </form>
+            <p style="text-align: center; font-size: 0.75rem; color: #718096; margin-top: 0.5rem;">
+                EduIntel can make mistakes. Consider checking important information.
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // --- API Configuration ---
+        const API_BASE_URL = 'http://localhost:8080';
+        const CHAT_ENDPOINT = `${API_BASE_URL}/chat`;
+        const NEW_CHAT_ENDPOINT = `${API_BASE_URL}/new-chat`;
+        
+        // **FIXED USER ID AS REQUESTED**
+        const FIXED_USER_ID = '652fbf5c9d2e8d4b12345678'; 
+
+        // --- State Variables (Replacing React State) ---
+        let chatMessages = [];
+        let isLoading = false;
+        let isSessionLoading = true;
+        let chatSessionId = null;
+        let error = null;
+
+        // --- DOM Elements ---
+        const chatMessagesEl = document.getElementById('chat-messages');
+        const sessionStatusEl = document.getElementById('session-status');
+        const chatInputEl = document.getElementById('chat-input');
+        const sendButtonEl = document.getElementById('send-button');
+        const chatFormEl = document.getElementById('chat-form');
+
+        // --- DOM Update Functions (Rest of the rendering logic remains the same) ---
+        const renderChat = () => {
+            chatMessagesEl.innerHTML = ''; 
+            
+            if (error) {
+                chatMessagesEl.innerHTML = `
+                    <div class="message-bubble system-error-message" style="align-self: center; margin-bottom: 1rem;">
+                        <strong>System Error:</strong> ${error}
+                    </div>
+                `;
+            }
+
+            if (!chatSessionId && !isSessionLoading && chatMessages.length === 0) {
+                chatMessagesEl.innerHTML += `
+                    <div style="text-align: center; padding: 40px; color: #a0aec0;">
+                        <h3>How can I help you today?</h3>
+                        <p>Ask me about policies, reports, or data analysis.</p>
+                        <p style="color: #718096; font-size: 0.85rem;">Using Fixed User ID: ${FIXED_USER_ID}</p>
+                    </div>
+                `;
+            }
+
+            chatMessages.forEach(msg => {
+                const bubble = document.createElement('div');
+                let className = 'message-bubble ';
+                let content = '';
+
+                if (msg.type === 'user') {
+                    className += 'user-message';
+                    content = `<p>${msg.text}</p>`;
+                } else if (msg.type === 'system-error') {
+                    className += 'system-error-message';
+                    content = `<p><strong>System Error:</strong> ${msg.text}</p>`;
+                } else { // 'bot'
+                    className += 'bot-message';
+                    content = `<p class="bot-name">EduIntel AI</p><p>${msg.text}</p>`;
+                }
+                
+                bubble.className = className;
+                bubble.innerHTML = content;
+                chatMessagesEl.appendChild(bubble);
+            });
+            
+            chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        };
+
+        const updateSessionStatus = (status) => {
+            sessionStatusEl.textContent = status;
+        };
+        
+        const updateInputState = () => {
+            const disable = isLoading || isSessionLoading || !chatSessionId;
+            chatInputEl.disabled = disable;
+            sendButtonEl.disabled = disable || chatInputEl.value.trim() === '';
+            chatInputEl.placeholder = chatSessionId ? "Type your message or ask a question..." : "Session loading... please wait.";
+        };
+
+        const showLoadingIndicator = () => {
+             const loadingBubble = document.createElement('div');
+             loadingBubble.className = 'message-bubble bot-message';
+             loadingBubble.id = 'bot-thinking-indicator';
+             loadingBubble.innerHTML = `<p class="bot-name">EduIntel AI</p><p><span class="loader"></span> EduIntel is thinking...</p>`;
+             chatMessagesEl.appendChild(loadingBubble);
+             chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
+        };
+
+        const hideLoadingIndicator = () => {
+            const indicator = document.getElementById('bot-thinking-indicator');
+            if (indicator) {
+                indicator.remove();
+            }
+        };
+
+        // --- Core Logic using Axios ---
+        const initializeChatSession = async () => {
+            isSessionLoading = true;
+            error = null;
+            updateInputState();
+            updateSessionStatus('Establishing Session...');
+            
+            try {
+                // **CALLING /new-chat WITH FIXED_USER_ID**
+                const response = await axios.post(NEW_CHAT_ENDPOINT, { 
+                    userId: FIXED_USER_ID 
+                });
+
+                const result = response.data;
+
+                if (response.status === 200 && result.sessionId) {
+                    chatSessionId = result.sessionId;
+                    // Map incoming messages to the local format
+                    chatMessages = (result.messages || []).map(msg => ({ 
+                        type: msg.role === 'user' ? 'user' : 'bot', 
+                        text: msg.content 
+                    }));
+                    updateSessionStatus(`Active (${chatSessionId.substring(0, 8)}...)`);
+                } else {
+                    error = result.message || "Failed to start a new chat session from the backend.";
+                    updateSessionStatus('Failed to start chat');
+                }
+            } catch (err) {
+                error = `Network error or API failure: ${err.message}. Check console for details.`;
+                updateSessionStatus('Network Error');
+                console.error("New Chat Network/API Error:", err);
+            } finally {
+                isSessionLoading = false;
+                renderChat();
+                updateInputState();
+            }
+        };
+
+        const handleChatSubmit = async (e) => {
+            e.preventDefault();
+            const userMessage = chatInputEl.value.trim();
+            const tempMessageId = Date.now();
+
+            if (!userMessage || isLoading || isSessionLoading || !chatSessionId) return;
+
+            isLoading = true;
+            error = null;
+            updateInputState();
+            chatInputEl.value = ''; 
+            
+            // Temporarily display the user's message
+            chatMessages.push({ type: 'user', text: userMessage, tempId: tempMessageId });
+            renderChat();
+            showLoadingIndicator();
+            
+            // **PAYLOAD USES FIXED_USER_ID**
+            const payload = {
+                userId: FIXED_USER_ID, 
+                message: userMessage,
+                sessionId: chatSessionId, 
+            };
+
+            try {
+                const response = await axios.post(CHAT_ENDPOINT, payload);
+                const result = response.data;
+                
+                console.log("Full Chat API Response:", result);
+
+                if (response.status === 200) {
+                    if (result.messages && Array.isArray(result.messages)) {
+                        chatMessages = result.messages.map(msg => ({ 
+                            type: msg.role === 'user' ? 'user' : 'bot', 
+                            text: msg.content 
+                        }));
+                        const botMessage = result.messages.slice(-1)[0];
+                        if (botMessage && botMessage.role === 'bot') {
+                            console.log("Extracted Bot Message Content:", botMessage.content);
+                        }
+                    } else {
+                        error = "API returned success but messages list is missing.";
+                    }
+                }
+            } catch (err) {
+                console.error("Chat Submission Error:", err);
+                const errorMessage = err.response ? err.response.data.message || `API Error: Status ${err.response.status}` : err.message;
+                error = `Error during submission: ${errorMessage}`;
+                
+                chatMessages = chatMessages.filter(msg => msg.tempId !== tempMessageId);
+                chatMessages.push({ type: 'system-error', text: `Failed to get a response: ${errorMessage}` });
+            } finally {
+                isLoading = false;
+                hideLoadingIndicator();
+                renderChat();
+                updateInputState();
+            }
+        };
+
+        // --- Event Listeners and Initialization ---
+        chatFormEl.addEventListener('submit', handleChatSubmit);
+        chatInputEl.addEventListener('input', updateInputState);
+
+        // Initial setup
+        initializeChatSession();
+
+    </script>
+</body>
+</html>
